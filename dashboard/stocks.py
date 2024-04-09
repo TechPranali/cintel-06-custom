@@ -1,0 +1,3 @@
+stocks = {
+    "AAPL": "Apple Inc.",
+}

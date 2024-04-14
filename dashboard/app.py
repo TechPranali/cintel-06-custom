@@ -1,186 +1,116 @@
-from pathlib import Path
-import pandas as pd
-import yfinance as yf
-from faicons import icon_svg
-from shiny import reactive
-from shiny.express import input, render, ui
-from shiny.ui import output_ui
+import asyncio
+import faicons as fa
+import plotly.express as px
 from shinywidgets import render_plotly
-from plotly.subplots import make_subplots
-import plotly.graph_objects as go
 
-# Default to the last month
-end = pd.Timestamp.now()
-start = end - pd.Timedelta(weeks=4)
+from shiny import reactive, render, req
+from shiny.express import input, ui
 
-ui.page_opts(title="Apple AAPL Stock Explorer", fillable=True)
-selected_stock = "AAPL" #default selected stock
+# Load data and compute static values
+tips = px.data.tips()  # This would ideally be replaced with your Pizza Hut data
+bill_rng = (min(tips.total_bill), max(tips.total_bill))
 
-with ui.sidebar():
-    # Search input
-    ui.input_date_range("dates", "Select dates", start=start, end=end)
-    ui.input_numeric("quantity", "Quantity", min=1, max=100, step=1, value=1)
+# Add page title and sidebar
+ui.page_opts(title="Pranali's Pizza Hut System", fillable=True)
+with ui.sidebar(open="desktop", style="background-color: lightcoral"):
+    ui.input_slider("total_bill", "Bill Range", min=bill_rng[0], max=bill_rng[1], value=bill_rng, post="$", pre="$")
+    ui.input_checkbox_group("time", "Type of Meal", ["Lunch", "Dinner", "Late Night"], selected=["Lunch", "Dinner"], inline=True)
+    ui.input_action_button("reset", "Reset Filter")
 
-    # Links and newsfeed section
-    ui.h6("Newsfeed and links:")
-    ui.a(
-        "APPL Google Financial today",
-        href="https://www.google.com/search?sca_esv=f16471168e6fc9b9&sca_upv=1&rlz=1C5CHFA_enUS748US748&sxsrf=ACQVn0_zAqWeiIBc3fzp9NY3AiSMHIloog:1712106682380&q=google+finance+AAPL&sa=X&ved=2ahUKEwiaiPu07qSFAxULElkFHQ3ODS0Q7xYoAHoECAkQAg&biw=1598&bih=788&dpr=1",
-        style="color: #007bff;",  # Blue color for links
-        target="_blank",
-      
-    )
+ui.input_action_button("do_compute", "Calculate Tip")
 
-    ui.a(
-        "APPL Bloomberg",
-        href="https://www.bloomberg.com/news/articles/2024-04-02/apple-flirts-with-support-levels-after-worst-quarter-in-a-decade?embedded-checkout=true",
-        target="_blank",
-        style="color: #007bff;",  # Blue color for links
-    )
-    ui.a(
-        "APPL Yahoo Finance Today",
-        href="https://finance.yahoo.com/quote/AAPL/",
-        target="_blank",
-        style="color: #007bff;",  # Blue color for links
-    )
+@render.ui
+@reactive.event(input.do_compute)
+async def compute():
+    with ui.Progress(min=1, max=10) as p:
+        p.set(message="Calculating your tip", detail="Please wait...")
+        for i in range(1, 11):
+            p.set(value=i, message=f"Step {i}: Calculating optimal tip...")
+            await asyncio.sleep(0.1)
+    ui.markdown("Remember, tipping generously keeps the service great!")
 
-    ui.a(
-        "GitHub Source",
-        href="https://github.com/drodmay1/cintel-06-custom",
-        target="_blank",
-        style="color: #007bff;",  # Blue color for links
-    )
-    
-    ui.a(
-        "GitHub App",
-        href="https://github.com/drodmay1/cintel-06-custom/blob/main/dashboard/app.py",
-        target="_blank",
-        style="color: #007bff;",  # Blue color for links
-    )
-    ui.a(
-        "PyShiny", 
-        href="https://shiny.posit.co/py/", 
-        target="_blank",
-        style="color: #007bff;",  # Blue color for links
-    )
+# Add main content
+ICONS = {
+    "user": fa.icon_svg("user", "solid",),
+    "wallet": fa.icon_svg("dollar-sign", "solid"),
+    "currency-dollar": fa.icon_svg("piggy-bank"),
+    "gear": fa.icon_svg("wallet"),
    
-with ui.layout_column_wrap(fill=False):
-    with ui.value_box(showcase=icon_svg("dollar-sign")):
-        "Current Price"
+}
 
-        @render.ui
-        def price():
-            close = get_data()["Close"]
-            return f"{close.iloc[-1]:.2f}"
+with ui.layout_columns(fill=False):
+    with ui.value_box(showcase=ICONS["user"], theme="bg-gradient-red-pink"):
+        "Total Customers"
+        @render.express
+        def total_customers():
+            print(tips_data().shape[0])
 
-    with ui.value_box(showcase=output_ui("change_icon")):
-        "Change"
+    with ui.value_box(showcase=ICONS["wallet"], theme="bg-gradient-red-pink"):
+        "Average Tip"
+        @render.express
+        def average_tip():
+            d = tips_data()
+            if d.shape[0] > 0:
+                perc = d.tip / d.total_bill
+                print(f"{perc.mean():.1%}")
 
-        @render.ui
-        def change():
-            return f"${get_change():.2f}"
+    with ui.value_box(showcase=ICONS["currency-dollar"], theme="bg-gradient-red-pink"):
+        "Average Bill"
+        @render.express
+        def average_bill():
+            d = tips_data()
+            if d.shape[0] > 0:
+                bill = d.total_bill.mean()
+                print(f"${bill:.2f}")
 
-    with ui.value_box(showcase=icon_svg("percent")):
-        "Percent Change"
+with ui.layout_columns(col_widths=[6, 6, 12]):
+    with ui.card(full_screen=True, style="background-color: lightseagreen"):
+        ui.card_header("Pizza Order Details")
+        @render.data_frame
+        def table():
+            return render.DataGrid(tips_data())
 
-        @render.ui
-        def change_percent():
-            return f"{get_change_percent():.2f}%"
-        
-    with ui.value_box(showcase=icon_svg("coins")):
-        "Total Value"
-
-        @render.ui
-        def total_value():
-            data = get_data()
-            quantity = input.quantity()
-            if data.empty or quantity is None:
-                return "N/A"
-            else:
-                close_price = data["Close"].iloc[-1]
-                return f"${close_price * quantity:.2f}"
-            
-        ui.include_css(Path(__file__).parent / "styles.css")
-
-
-with ui.layout_columns(col_widths=[9, 3]):
-    with ui.card(full_screen=True):
-        ui.card_header("Price history and volume")
+    with ui.card(full_screen=True, style="background-color: lightseagreen"):
+        with ui.card_header(class_="d-flex justify-content-between align-items-center"):
+            "Bill vs Tip Amount"
+            with ui.popover(title="Change color variable", placement="top"):
+                ICONS["gear"]
+                ui.input_radio_buttons("scatter_color", None, ["none", "sex", "day", "time"], inline=True)
 
         @render_plotly
-        def price_and_volume():
-            data = get_data()
+        def scatterplot():
+            color = input.scatter_color()
+            return px.scatter(tips_data(), x="total_bill", y="tip", color=None if color == "none" else color, trendline="lowess")
 
-            #C reate a new plotly figure
-            fig = go.Figure()
+    with ui.card(full_screen=True, style="background-color: lightseagreen"):
+        with ui.card_header(class_="d-flex justify-content-between align-items-center"):
+            "Tip Percentages by Meal Time"
+            with ui.popover(title="Color variable selection"):
+                ICONS["gear"]
+                ui.input_radio_buttons("tip_perc_y", "Split by:", ["sex", "day", "time"], selected="time", inline=True)
 
-            # Add candlestick trace
-            fig.add_trace(
-                go.Candlestick(x=data.index,
-                               open=data['Open'],
-                               high=data['High'],
-                               low=data['Low'],
-                               close=data['Close'],
-                               increasing_line_color='rgba(0,128,0,0.7)',
-                               decreasing_line_color='rgba(255,0,0,0.7)',
-                               name="Candlestick")
-            )
+        @render_plotly
+        def tip_perc():
+            from ridgeplot import ridgeplot
+            dat = tips_data().copy()
+            dat["percent"] = dat.tip / dat.total_bill
+            yvar = input.tip_perc_y()
+            uvals = dat[yvar].unique()
+            samples = [[dat.percent[dat[yvar] == val]] for val in uvals]
+            plt = ridgeplot(samples=samples, labels=uvals, bandwidth=0.01, colorscale="viridis", colormode="row-index")
+            plt.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5))
+            return plt
 
-            # Add volume trace as a bar chart
-            fig.add_trace(
-                go.Bar(x=data.index, y=data['Volume'], name="Volume")
-            )
-
-            # Update layout
-            fig.update_layout(
-                title="Price History and Volume",
-                xaxis=dict(title="Date"),
-                hovermode="x unified",
-                paper_bgcolor='rgba(255,255,255,0.8)',
-                plot_bgcolor='rgba(255,255,255,0.8)',
-            )
-
-            return fig
-        
-    
-    with ui.card():
-        ui.card_header("Latest data")
-
-        @render.data_frame
-        def latest_data():
-            x = get_data()[:1].T.reset_index()
-            x.columns = ["Category", "Value"]
-            x["Value"] = x["Value"].apply(lambda v: f"{v:.1f}")
-            return x
-        
-# Reactive calculations
-
+# Reactive calculations and effects
 @reactive.calc
-def get_ticker():
-    return yf.Ticker(selected_stock)
+def tips_data():
+    bill = input.total_bill()
+    idx1 = tips.total_bill.between(bill[0], bill[1])
+    idx2 = tips.time.isin(input.time())
+    return tips[idx1 & idx2]
 
-@reactive.calc
-def get_data():
-    dates = input.dates()
-    return get_ticker().history(start=dates[0], end=dates[1])
-
-
-@reactive.calc
-def get_change():
-    close = get_data()["Close"]
-    return close.iloc[-1] - close.iloc[-2]
-
-@reactive.calc
-def get_change_percent():
-    close = get_data()["Close"]
-    change = close.iloc[-1] - close.iloc[-2]
-    return change / close.iloc[-2] * 100
-
-with ui.hold():
-
-    @render.ui
-    def change_icon():
-        change = get_change()
-        icon = icon_svg("arrow-up" if change >= 0 else "arrow-down")
-        icon.add_class(f"text-{('success' if change >= 0 else 'danger')}")
-        return icon
+@reactive.effect
+@reactive.event(input.reset)
+def _():
+    ui.update_slider("total_bill", value=bill_rng)
+    ui.update_checkbox_group("time", selected=["Lunch", "Dinner", "Late Night"])

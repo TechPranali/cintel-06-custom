@@ -1,3 +1,0 @@
-stocks = {
-    "AAPL": "Apple Inc.",
-}
